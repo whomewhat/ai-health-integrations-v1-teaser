@@ -1,29 +1,32 @@
-#!/usr/bin/env node
-
 /**
- * HL7 Ingest - Synthetic Data Processing
- * Processes synthetic HL7v2 messages and enqueues normalized events
+ * HL7 Ingest — Synthetic Data Processing (TypeScript, ESM)
+ * Reads a synthetic HL7v2 message, normalizes it, enqueues it,
+ * and also writes a canonical artifact to samples/normalized.json
+ * so a separate agent process can pick it up.
  */
 
-// Sample synthetic HL7v2 ADT message
-const sampleHL7Message = `MSH|^~\\&|SENDING_APP|SENDING_FACILITY|RECEIVING_APP|RECEIVING_FACILITY|20230813110800||ADT^A01|MSG123456|P|2.5
-EVN||202308131108
-PID|1||MRN123456^^^HOSPITAL^MR||DOE^JOHN^||19800101|M|||123 MAIN ST^^ANYTOWN^ST^12345||(555)123-4567||||||||||
-PV1|1|I|ICU^101^01||||12345^SMITH^JANE^M^^^DR|||||||||||||||||||||||202308131100`;
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { enqueue, type QueueItem } from "../events/queue.js";
+import { log } from "../observability/logger.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const SAMPLE_PATH = path.resolve(__dirname, "../../samples/adt_oru.hl7");
+const OUT_PATH = path.resolve(__dirname, "../../samples/normalized.json");
 
 interface NormalizedEvent {
   id: string;
-  type: 'admission' | 'discharge' | 'transfer' | 'update';
+  type: "admission" | "discharge" | "transfer" | "update";
   patientId: string;
   facilityId: string;
   timestamp: string;
   data: {
     messageType: string;
     patientMRN: string;
-    patientName: {
-      family: string;
-      given: string;
-    };
+    patientName: { family: string; given: string };
     patientDOB: string;
     patientGender: string;
     location?: string;
@@ -36,93 +39,74 @@ interface NormalizedEvent {
   };
 }
 
-// Simple HL7 parser (stub implementation)
+// Minimal HL7 normalizer (good enough for a teaser)
 function parseHL7Message(hl7: string): NormalizedEvent {
-  const lines = hl7.split('\n');
-  const mshSegment = lines[0].split('|');
-  const pidSegment = lines.find(line => line.startsWith('PID'))?.split('|') || [];
-  const pv1Segment = lines.find(line => line.startsWith('PV1'))?.split('|') || [];
-  
-  const messageType = mshSegment[8] || 'ADT^A01';
-  const patientName = pidSegment[5] ? pidSegment[5].split('^') : ['', ''];
-  
-  const normalizedEvent: NormalizedEvent = {
-    id: `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    type: messageType.includes('A01') ? 'admission' : 'update',
-    patientId: pidSegment[3] || 'unknown',
-    facilityId: mshSegment[4] || 'FACILITY_001',
+  const lines = hl7.trim().split(/\r?\n/);
+
+  const msh = (lines.find(l => l.startsWith("MSH")) ?? "").split("|");
+  const pid = (lines.find(l => l.startsWith("PID")) ?? "").split("|");
+  const pv1 = (lines.find(l => l.startsWith("PV1")) ?? "").split("|");
+
+  const msgType = msh[8] || "ADT^A01"; // MSH-9
+  const mrn = pid[3] || "MRN_UNKNOWN"; // PID-3
+  const nameParts = (pid[5] || "^").split("^"); // PID-5
+  const family = nameParts[0] || "";
+  const given = nameParts[1] || "";
+  const dob = pid[7] || ""; // PID-7
+  const sex = pid[8] || ""; // PID-8
+  const location = pv1[3] || ""; // PV1-3
+  const attending = pv1[7] || ""; // PV1-7
+
+  const controlId = msh[9] || `MSG${Date.now()}`; // MSH-10
+  const eventType =
+    msgType.includes("A01") ? "admission" :
+    msgType.includes("A03") ? "discharge" :
+    msgType.includes("A02") ? "transfer" : "update";
+
+  return {
+    id: `evt_${controlId}`,
+    type: eventType as NormalizedEvent["type"],
+    patientId: mrn,
+    facilityId: msh[4] || "FACILITY_001", // MSH-5 (receiving app/facility vary by site)
     timestamp: new Date().toISOString(),
     data: {
-      messageType,
-      patientMRN: pidSegment[3] || '',
-      patientName: {
-        family: patientName[0] || '',
-        given: patientName[1] || '',
-      },
-      patientDOB: pidSegment[7] || '',
-      patientGender: pidSegment[8] || '',
-      location: pv1Segment[3] || '',
-      attendingPhysician: pv1Segment[7] || '',
+      messageType: msgType,
+      patientMRN: mrn,
+      patientName: { family, given },
+      patientDOB: dob,
+      patientGender: sex,
+      location,
+      attendingPhysician: attending
     },
     metadata: {
       originalHL7: hl7,
       processedAt: new Date().toISOString(),
-      source: 'hl7-ingest',
-    },
-  };
-  
-  return normalizedEvent;
-}
-
-// Queue simulation (in real implementation, this would be Redis/RabbitMQ/etc)
-const eventQueue: NormalizedEvent[] = [];
-
-function enqueueEvent(event: NormalizedEvent): void {
-  eventQueue.push(event);
-  console.log(`[HL7 Ingest] Event queued: ${event.id} (${event.type})`);
-  console.log(`[HL7 Ingest] Patient: ${event.data.patientName.given} ${event.data.patientName.family}`);
-  console.log(`[HL7 Ingest] Queue length: ${eventQueue.length}`);
-}
-
-function processHL7Message(hl7Message: string): void {
-  console.log('[HL7 Ingest] Processing HL7 message...');
-  
-  try {
-    // Parse and normalize the HL7 message
-    const normalizedEvent = parseHL7Message(hl7Message);
-    
-    // Idempotent check (stub - in real implementation, check against processed events)
-    const isDuplicate = eventQueue.some(event => 
-      event.data.patientMRN === normalizedEvent.data.patientMRN &&
-      event.data.messageType === normalizedEvent.data.messageType &&
-      Math.abs(new Date(event.timestamp).getTime() - new Date(normalizedEvent.timestamp).getTime()) < 60000 // 1 minute window
-    );
-    
-    if (isDuplicate) {
-      console.log('[HL7 Ingest] Duplicate message detected, skipping...');
-      return;
+      source: "hl7-ingest"
     }
-    
-    // Enqueue the normalized event
-    enqueueEvent(normalizedEvent);
-    
-    console.log('[HL7 Ingest] HL7 message processed successfully');
-    
-  } catch (error) {
-    console.error('[HL7 Ingest] Error processing HL7 message:', error);
-  }
+  };
 }
 
-// Main execution
-console.log('[HL7 Ingest] Starting HL7 message processing...');
-console.log('[HL7 Ingest] Processing synthetic HL7 ADT message\n');
+function main() {
+  if (!fs.existsSync(SAMPLE_PATH)) {
+    log("Missing sample HL7 file:", SAMPLE_PATH);
+    process.exit(1);
+  }
 
-processHL7Message(sampleHL7Message);
+  const hl7 = fs.readFileSync(SAMPLE_PATH, "utf8");
+  log("[HL7 Ingest] Processing HL7 message…");
 
-// Display queue contents
-console.log('\n[HL7 Ingest] Current queue contents:');
-eventQueue.forEach((event, index) => {
-  console.log(`${index + 1}. ${event.id} - ${event.type} - ${event.data.patientName.given} ${event.data.patientName.family}`);
-});
+  const normalized = parseHL7Message(hl7);
 
-console.log('\n[HL7 Ingest] Processing complete');
+  // 1) Enqueue for same-process demos (no-op across processes; just a teaser)
+  const item: QueueItem = { id: normalized.id, type: "HL7v2", payload: normalized };
+  const ok = enqueue(item);
+  log("[HL7 Ingest] Enqueued:", normalized.id, "ok:", ok);
+
+  // 2) Persist for separate process demos (agent reads this file)
+  fs.writeFileSync(OUT_PATH, JSON.stringify(normalized, null, 2), "utf8");
+  log("[HL7 Ingest] Wrote canonical artifact:", OUT_PATH);
+
+  log("[HL7 Ingest] Done. You can now run: npm run agent");
+}
+
+ma
