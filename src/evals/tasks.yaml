@@ -1,0 +1,8 @@
+tasks:
+  - name: Medication reconciliation
+    rule: "contains:HL7"
+    expect: true
+
+  - name: Discharge summary extraction
+    rule: "contains:DISCHARGE"
+    expect: true
