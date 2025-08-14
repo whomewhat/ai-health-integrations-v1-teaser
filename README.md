@@ -25,11 +25,14 @@ nvm use
 # 2) Install deps
 npm install
 
-# 3) Run the data path (ingest → queue → process)
-npm run hl7     # reads a synthetic HL7 message and enqueues a normalized event
-npm run agent   # processes the queue with a policy hook and prints metrics
+# 3) Compile TypeScript -> dist/
+npm run build
 
-# 4) Run the eval gate
+# 4) Run the data path (ingest → queue/file → process)
+npm run hl7     # reads a synthetic HL7 message and enqueues + writes samples/normalized.json
+npm run agent   # drains queue OR reads samples/normalized.json; prints metrics
+
+# 5) Run the eval gate
 npm run eval    # YAML tasks → PASS/FAIL per rule + rollback flag
 
 # Optional: start the stubbed FHIR proxy (GET /Patient/:id on :3000)
