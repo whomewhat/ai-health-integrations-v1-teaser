@@ -7,33 +7,23 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "echo \"Error: no test specified\" && exit 1",
     "fhir": "node dist/scripts/fhir-proxy.js",
     "hl7": "node dist/scripts/hl7-ingest.js",
     "agent": "node dist/scripts/agent-orchestrator.js",
     "eval": "node dist/scripts/eval-harness.js"
   },
-  "keywords": [
-    "ai",
-    "health",
-    "integrations",
-    "typescript",
-    "sdk",
-    "fhir",
-    "hl7",
-    "ehr"
-  ],
+  "keywords": ["ai","health","integrations","typescript","sdk","fhir","hl7","ehr"],
   "author": "whomewhat",
   "license": "Apache-2.0",
   "dependencies": {
-    "express": "^4.18.0",
+    "express": "^4.19.2",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/node": "^20.0.0",
-    "@types/express": "^4.17.0",
-    "@types/js-yaml": "^4.0.0"
+    "typescript": "^5.4.5",
+    "@types/node": "^20.11.30",
+    "@types/express": "^4.17.21",
+    "@types/js-yaml": "^4.0.9"
   },
   "engines": {
     "node": ">=20.0.0"
