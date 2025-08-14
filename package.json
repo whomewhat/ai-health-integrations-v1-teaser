@@ -10,7 +10,7 @@
     "fhir": "node dist/scripts/fhir-proxy.js",
     "hl7": "node dist/scripts/hl7-ingest.js",
     "agent": "node dist/scripts/agent-orchestrator.js",
-    "eval": "node dist/scripts/eval-harness.js"
+    "eval": "node dist/evals/eval.js"
   },
   "keywords": ["ai","health","integrations","typescript","sdk","fhir","hl7","ehr"],
   "author": "whomewhat",
